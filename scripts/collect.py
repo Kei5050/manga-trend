@@ -22,6 +22,11 @@ EBAY_OAUTH_URL = "https://api.ebay.com/identity/v1/oauth2/token"
 EBAY_SEARCH_URL = "https://api.ebay.com/buy/browse/v1/item_summary/search"
 # Comics & Graphic Novels > Manga & Asian Comics のカテゴリID(eBay Browse APIで確認済み)
 CATEGORY_ID = "33346"
+# Comics & Graphic Novels > Comics > Comics & Graphic Novels(一般コミック向けカテゴリ)。
+# BGSグレーディング品や単巻がManga & Asian Comicsではなくこちらに出品されるケースがあるため、
+# Manga & Asian Comics(33346)に加えて検索対象に含める。
+GENERAL_COMICS_CATEGORY_ID = "259104"
+SEARCH_CATEGORY_IDS = [CATEGORY_ID, GENERAL_COMICS_CATEGORY_ID]
 # Browse APIのsearchはcategory_ids単体では受け付けず、qが必須。カテゴリを絞り込むための検索語。
 # "manga"のみだとタイトルに"manga"を含まない出品(BGSなどグレーディング表記が中心の出品や
 # 巻数のみのタイトル)を取りこぼすため、複数クエリを実行して結果をマージする。
@@ -137,17 +142,22 @@ def get_access_token() -> str:
     return resp.json()["access_token"]
 
 
-def fetch_listings(access_token: str, keyword: str, category_id: str = CATEGORY_ID, limit: int = 50) -> list:
-    """指定タイトルのリスティングをeBay Browse APIから取得する。"""
+def fetch_listings(access_token: str, keyword: str, category_id: str = None, limit: int = 50) -> list:
+    """指定タイトルのリスティングをeBay Browse APIから取得する。
+
+    タイトルの初出カテゴリ(Manga & Asian Comics / 一般Comics)を問わず
+    同一出品を追跡できるよう、既定ではカテゴリ指定なしで検索する。
+    """
     headers = {
         "Authorization": f"Bearer {access_token}",
         "X-EBAY-C-MARKETPLACE-ID": "EBAY_US",
     }
     params = {
         "q": keyword,
-        "category_ids": category_id,
         "limit": str(limit),
     }
+    if category_id:
+        params["category_ids"] = category_id
     resp = requests.get(EBAY_SEARCH_URL, headers=headers, params=params, timeout=30)
     resp.raise_for_status()
     return resp.json().get("itemSummaries", [])
@@ -155,12 +165,13 @@ def fetch_listings(access_token: str, keyword: str, category_id: str = CATEGORY_
 
 def search_category_pool(
     access_token: str,
-    category_id: str = CATEGORY_ID,
+    category_ids: list = SEARCH_CATEGORY_IDS,
     queries: list = SEARCH_QUERIES,
     limit_per_query: int = SEARCH_POOL_LIMIT_PER_QUERY,
 ) -> list:
-    """カテゴリ内を複数クエリでBest Match順(sort省略時の既定)に検索し、結果をマージして返す。
+    """複数カテゴリ×複数クエリでBest Match順(sort省略時の既定)に検索し、結果をマージして返す。
 
+    Browse APIはcategory_idsを1つしか受け付けないため、カテゴリごとに個別リクエストする。
     "manga"のみのクエリだとタイトルに"manga"を含まない出品(BGSグレーディング表記中心の
     出品など)を取りこぼすため、複数クエリの結果をitemId基準で重複排除しながら結合する。
     Browse APIにwatchCount等の人気順ソートは存在しないため、
@@ -172,20 +183,21 @@ def search_category_pool(
     }
     seen_item_ids = set()
     merged = []
-    for query in queries:
-        params = {
-            "q": query,
-            "category_ids": category_id,
-            "limit": str(limit_per_query),
-        }
-        resp = requests.get(EBAY_SEARCH_URL, headers=headers, params=params, timeout=30)
-        resp.raise_for_status()
-        for item in resp.json().get("itemSummaries", []):
-            item_id = item.get("itemId")
-            if item_id in seen_item_ids:
-                continue
-            seen_item_ids.add(item_id)
-            merged.append(item)
+    for category_id in category_ids:
+        for query in queries:
+            params = {
+                "q": query,
+                "category_ids": category_id,
+                "limit": str(limit_per_query),
+            }
+            resp = requests.get(EBAY_SEARCH_URL, headers=headers, params=params, timeout=30)
+            resp.raise_for_status()
+            for item in resp.json().get("itemSummaries", []):
+                item_id = item.get("itemId")
+                if item_id in seen_item_ids:
+                    continue
+                seen_item_ids.add(item_id)
+                merged.append(item)
     return merged
 
 
