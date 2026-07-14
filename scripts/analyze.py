@@ -71,7 +71,8 @@ def build_analysis(conn) -> dict:
     weekly_ranking = []
     monthly_ranking = []
     new_entries = []
-    low_confidence = []
+    weekly_low_confidence = []
+    monthly_low_confidence = []
 
     for title_key, history in by_title.items():
         history_sorted = sorted(history, key=lambda s: s["snap_date"])
@@ -97,7 +98,7 @@ def build_analysis(conn) -> dict:
         if week_change:
             item = dict(entry_base, **week_change)
             if latest["listing_count"] is not None and latest["listing_count"] < MIN_LISTING_COUNT:
-                low_confidence.append(item)
+                weekly_low_confidence.append(item)
             else:
                 weekly_ranking.append(item)
 
@@ -107,12 +108,14 @@ def build_analysis(conn) -> dict:
         if month_change:
             item = dict(entry_base, **month_change)
             if latest["listing_count"] is not None and latest["listing_count"] < MIN_LISTING_COUNT:
-                low_confidence.append(item)
+                monthly_low_confidence.append(item)
             else:
                 monthly_ranking.append(item)
 
     weekly_ranking.sort(key=lambda x: x["diff_pct"], reverse=True)
     monthly_ranking.sort(key=lambda x: x["diff_pct"], reverse=True)
+    weekly_low_confidence.sort(key=lambda x: x["diff_pct"], reverse=True)
+    monthly_low_confidence.sort(key=lambda x: x["diff_pct"], reverse=True)
 
     return {
         "generated_at": datetime.now().isoformat(),
@@ -120,7 +123,8 @@ def build_analysis(conn) -> dict:
         "weekly_ranking": weekly_ranking,
         "monthly_ranking": monthly_ranking,
         "new_entries": new_entries,
-        "low_confidence": low_confidence,
+        "weekly_low_confidence": weekly_low_confidence,
+        "monthly_low_confidence": monthly_low_confidence,
         "notes": {},
     }
 

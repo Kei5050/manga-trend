@@ -9,6 +9,7 @@ from collect import (
     collect_tracked_titles,
     collect_top_titles,
     normalize_title_key,
+    parse_title_components,
     summarize_listings,
     upsert_title,
 )
@@ -33,6 +34,34 @@ class TestNormalizeTitleKey(unittest.TestCase):
             normalize_title_key("  Attack on Titan ", "vol.3", "en"),
             normalize_title_key("Attack on Titan", "Vol.3", "English"),
         )
+
+
+class TestParseTitleComponents(unittest.TestCase):
+    def test_box_set_range(self):
+        series, vol, lang = parse_title_components(
+            "Demon Slayer Complete Box Set Manga Volumes 1-23 English VIZ w/Bonus Poster"
+        )
+        self.assertEqual(vol, "vol1-23")
+        self.assertEqual(lang, "en")
+        self.assertNotIn("manga", series.lower())
+
+    def test_set_range_adjacent_number(self):
+        series, vol, lang = parse_title_components("Chainsaw Man Box Set 1-11 Manga English")
+        self.assertEqual(vol, "set1-11")
+        self.assertEqual(lang, "en")
+
+    def test_single_volume(self):
+        series, vol, lang = parse_title_components("One Piece Vol.1 Manga English")
+        self.assertEqual(vol, "vol1")
+        self.assertEqual(lang, "en")
+
+    def test_japanese_language_detected(self):
+        _, _, lang = parse_title_components("Naruto Vol.5 Japanese Edition")
+        self.assertEqual(lang, "jp")
+
+    def test_no_volume_found(self):
+        series, vol, lang = parse_title_components("Chainsaw Man Manga English")
+        self.assertEqual(vol, "")
 
 
 class TestSummarizeListings(unittest.TestCase):

@@ -20,10 +20,50 @@ EBAY_CLIENT_ID = os.environ.get("EBAY_CLIENT_ID")
 EBAY_CLIENT_SECRET = os.environ.get("EBAY_CLIENT_SECRET")
 EBAY_OAUTH_URL = "https://api.ebay.com/identity/v1/oauth2/token"
 EBAY_SEARCH_URL = "https://api.ebay.com/buy/browse/v1/item_summary/search"
-# Comics & Graphic Novels > Manga のカテゴリID。実装時にeBay Category APIで要確認
-CATEGORY_ID = "85010"
+# Comics & Graphic Novels > Manga & Asian Comics のカテゴリID(eBay Browse APIで確認済み)
+CATEGORY_ID = "33346"
+# Browse APIのsearchはcategory_ids単体では受け付けず、qが必須。カテゴリを絞り込むための検索語。
+DEFAULT_QUERY = "manga"
 TOP_N = 30
 REQUEST_INTERVAL_SEC = 1.0
+
+_VOLUME_PATTERNS = [
+    re.compile(r"\b(?:box\s*set|set)\s*\.?\s*#?\s*(\d+\s*-\s*\d+|\d+)\b", re.IGNORECASE),
+    re.compile(r"\b(?:vols?\.?|volumes?)\s*\.?\s*#?\s*(\d+\s*-\s*\d+|\d+)\b", re.IGNORECASE),
+    re.compile(r"#\s*(\d+\s*-\s*\d+|\d+)\b"),
+]
+_NOISE_WORDS = re.compile(
+    r"\b(manga|english|japanese|brand\s*new|complete|authentic|viz\s*media|viz|"
+    r"us|new|w/bonus\s*poster|book|set|box|lot)\b",
+    re.IGNORECASE,
+)
+
+
+def parse_title_components(raw_title: str) -> tuple:
+    """eBayの出品タイトル文字列からシリーズ名・巻数/セット・言語を抽出する。
+
+    出品者ごとに表記が揺れるため厳密な解析はできないが、
+    「Vol./Volume/Set + 数字(範囲可)」のパターンを優先的に検出する。
+    言語表記が見当たらない場合は英語(en)を既定値とする。
+    """
+    volume_or_set = ""
+    for pattern in _VOLUME_PATTERNS:
+        match = pattern.search(raw_title)
+        if match:
+            is_set = pattern is _VOLUME_PATTERNS[0]
+            num = re.sub(r"\s*-\s*", "-", match.group(1))
+            volume_or_set = f"{'set' if is_set else 'vol'}{num}"
+            break
+
+    language = "jp" if re.search(r"\bjapanese\b", raw_title, re.IGNORECASE) else "en"
+
+    series_name = raw_title
+    for pattern in _VOLUME_PATTERNS:
+        series_name = pattern.sub("", series_name)
+    series_name = _NOISE_WORDS.sub("", series_name)
+    series_name = re.sub(r"\s+", " ", series_name).strip(" -.,")
+
+    return series_name, volume_or_set, language
 
 
 def normalize_title_key(series_name: str, volume_or_set: str, language: str) -> str:
@@ -84,14 +124,18 @@ def fetch_listings(access_token: str, keyword: str, category_id: str = CATEGORY_
 
 
 def search_top_titles(access_token: str, category_id: str = CATEGORY_ID, top_n: int = TOP_N) -> list:
-    """カテゴリを人気順で検索し、上位タイトルの生アイテムを取得する。"""
+    """カテゴリ内をBest Match順(sort省略時の既定)で検索し、上位タイトルの生アイテムを取得する。
+
+    Browse APIにwatchCount等の人気順ソートは存在しないため、
+    関連度に基づくBest Matchを人気順の代替として採用する。
+    """
     headers = {
         "Authorization": f"Bearer {access_token}",
         "X-EBAY-C-MARKETPLACE-ID": "EBAY_US",
     }
     params = {
+        "q": DEFAULT_QUERY,
         "category_ids": category_id,
-        "sort": "-watchCount",
         "limit": str(top_n),
     }
     resp = requests.get(EBAY_SEARCH_URL, headers=headers, params=params, timeout=30)
@@ -151,9 +195,11 @@ def collect_top_titles(conn, access_token: str, snap_date: str) -> dict:
     items = search_top_titles(access_token)
     rank_map = {}
     for rank, item in enumerate(items[:TOP_N], start=1):
-        title_key = normalize_title_key(item.get("title", ""), item.get("volume", ""), item.get("language", "en"))
+        raw_title = item.get("title", "")
+        series_name, volume_or_set, language = parse_title_components(raw_title)
+        title_key = normalize_title_key(series_name, volume_or_set, language)
         rank_map[title_key] = rank
-        upsert_title(conn, title_key, item.get("title", title_key), snap_date)
+        upsert_title(conn, title_key, raw_title or title_key, snap_date)
     conn.commit()
     return rank_map
 

@@ -88,7 +88,7 @@ class TestBuildAnalysis(unittest.TestCase):
         analysis = build_analysis(self.conn)
 
         self.assertEqual(len(analysis["weekly_ranking"]), 0)
-        self.assertEqual(len(analysis["low_confidence"]), 1)
+        self.assertEqual(len(analysis["weekly_low_confidence"]), 1)
 
 
 if __name__ == "__main__":

@@ -120,32 +120,57 @@ function renderCard(item, kind) {
     ? `${item.diff_pct >= 0 ? "+" : ""}${item.diff_pct}% (${item.diff_amount >= 0 ? "+" : ""}$${item.diff_amount.toFixed(2)})`
     : "新規ランクイン";
   const note = ANALYSIS.notes && ANALYSIS.notes[item.title_key];
-  const noteHtml = note ? `<div class="card-sub" style="margin-top:6px;color:#e0b34d">${note}</div>` : "";
 
   const wrap = document.createElement("div");
   wrap.className = "card";
-  wrap.innerHTML = `
-    <div class="card-header">
-      <div>
-        <div class="card-title">${item.display_name}</div>
-        <div class="card-sub">出品数: ${item.listing_count ?? "-"}件</div>
-        ${noteHtml}
-      </div>
-      <div style="text-align:right">
-        <div class="price">${fmtPrice(item.current_price)}</div>
-        <div class="${changeClass}">${changeText}</div>
-      </div>
-    </div>
-    <div class="chart-wrap"><canvas></canvas></div>
-  `;
 
-  const header = wrap.querySelector(".card-header");
-  const chartWrap = wrap.querySelector(".chart-wrap");
+  const header = document.createElement("div");
+  header.className = "card-header";
+
+  const left = document.createElement("div");
+  const title = document.createElement("div");
+  title.className = "card-title";
+  title.textContent = item.display_name;
+  const sub = document.createElement("div");
+  sub.className = "card-sub";
+  sub.textContent = `出品数: ${item.listing_count ?? "-"}件`;
+  left.appendChild(title);
+  left.appendChild(sub);
+  if (note) {
+    const noteEl = document.createElement("div");
+    noteEl.className = "card-sub";
+    noteEl.style.marginTop = "6px";
+    noteEl.style.color = "#e0b34d";
+    noteEl.textContent = note;
+    left.appendChild(noteEl);
+  }
+
+  const right = document.createElement("div");
+  right.style.textAlign = "right";
+  const priceEl = document.createElement("div");
+  priceEl.className = "price";
+  priceEl.textContent = fmtPrice(item.current_price);
+  const changeEl = document.createElement("div");
+  changeEl.className = changeClass;
+  changeEl.textContent = changeText;
+  right.appendChild(priceEl);
+  right.appendChild(changeEl);
+
+  header.appendChild(left);
+  header.appendChild(right);
+
+  const chartWrap = document.createElement("div");
+  chartWrap.className = "chart-wrap";
+  const canvas = document.createElement("canvas");
+  chartWrap.appendChild(canvas);
+
+  wrap.appendChild(header);
+  wrap.appendChild(chartWrap);
+
   let chart = null;
   header.addEventListener("click", () => {
     chartWrap.classList.toggle("open");
     if (chartWrap.classList.contains("open") && !chart) {
-      const canvas = chartWrap.querySelector("canvas");
       chart = new Chart(canvas, {
         type: "line",
         data: {
@@ -174,17 +199,30 @@ function renderCard(item, kind) {
   return wrap;
 }
 
-function renderPanel(panelId, items, kind) {
+function renderPanel(panelId, items, kind, lowConfidenceItems) {
   const panel = document.getElementById(panelId);
-  if (!items || items.length === 0) {
+  panel.innerHTML = "";
+  const hasMain = items && items.length > 0;
+  const hasLow = lowConfidenceItems && lowConfidenceItems.length > 0;
+  if (!hasMain && !hasLow) {
     panel.innerHTML = '<div class="empty">データがありません</div>';
     return;
   }
-  items.forEach(item => panel.appendChild(renderCard(item, kind)));
+  if (hasMain) {
+    items.forEach(item => panel.appendChild(renderCard(item, kind)));
+  }
+  if (hasLow) {
+    const heading = document.createElement("div");
+    heading.className = "card-sub";
+    heading.style.margin = "16px 0 8px";
+    heading.textContent = "出品数が少なく参考値のタイトル";
+    panel.appendChild(heading);
+    lowConfidenceItems.forEach(item => panel.appendChild(renderCard(item, kind)));
+  }
 }
 
-renderPanel("panel-weekly", ANALYSIS.weekly_ranking, "weekly");
-renderPanel("panel-monthly", ANALYSIS.monthly_ranking, "monthly");
+renderPanel("panel-weekly", ANALYSIS.weekly_ranking, "weekly", ANALYSIS.weekly_low_confidence);
+renderPanel("panel-monthly", ANALYSIS.monthly_ranking, "monthly", ANALYSIS.monthly_low_confidence);
 renderPanel("panel-new", ANALYSIS.new_entries, "new");
 
 document.querySelectorAll(".tab").forEach(tab => {
@@ -202,8 +240,12 @@ document.querySelectorAll(".tab").forEach(tab => {
 
 
 def render_html(analysis: dict) -> str:
-    html = HTML_TEMPLATE.replace("__GENERATED_AT__", analysis.get("generated_at", ""))
-    html = html.replace("__ANALYSIS_JSON__", json.dumps(analysis, ensure_ascii=False))
+    generated_at = analysis.get("generated_at", "")
+    generated_at_safe = generated_at.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    html = HTML_TEMPLATE.replace("__GENERATED_AT__", generated_at_safe)
+    # <script>タグ内に埋め込むため、</script>によるタグ終端注入を防ぐ
+    analysis_json = json.dumps(analysis, ensure_ascii=False).replace("<", "\\u003c")
+    html = html.replace("__ANALYSIS_JSON__", analysis_json)
     return html
 
 

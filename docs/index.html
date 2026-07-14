@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>eBay漫画トレンドレポート</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+  :root {
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: #121212;
+    color: #e8e8e8;
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Kaku Gothic ProN", "Segoe UI", sans-serif;
+  }
+  header {
+    padding: 16px;
+    background: #1a1a1a;
+    border-bottom: 1px solid #2a2a2a;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+  header h1 { margin: 0 0 4px; font-size: 18px; }
+  header .generated { font-size: 12px; color: #888; }
+  .tabs {
+    display: flex;
+    background: #1a1a1a;
+    border-bottom: 1px solid #2a2a2a;
+    position: sticky;
+    top: 58px;
+    z-index: 10;
+  }
+  .tab {
+    flex: 1;
+    padding: 12px 0;
+    text-align: center;
+    font-size: 14px;
+    color: #888;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+  }
+  .tab.active {
+    color: #fff;
+    border-bottom-color: #4da3ff;
+  }
+  .panel { display: none; padding: 12px; }
+  .panel.active { display: block; }
+  .card {
+    background: #1e1e1e;
+    border-radius: 10px;
+    padding: 14px;
+    margin-bottom: 10px;
+  }
+  .card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+  }
+  .card-title { font-size: 15px; font-weight: 600; }
+  .card-sub { font-size: 12px; color: #999; margin-top: 4px; }
+  .price { font-size: 16px; font-weight: 700; }
+  .change-up { color: #ff6b6b; }
+  .change-down { color: #4dabf7; }
+  .chart-wrap { display: none; margin-top: 12px; height: 180px; }
+  .chart-wrap.open { display: block; }
+  .empty { text-align: center; color: #666; padding: 40px 0; font-size: 14px; }
+  .note {
+    font-size: 12px;
+    color: #999;
+    background: #1e1e1e;
+    border-radius: 8px;
+    padding: 10px;
+    margin: 0 12px 12px;
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>eBay漫画トレンド</h1>
+  <div class="generated">生成日時: 2026-07-14T23:50:50.828988</div>
+</header>
+<div class="note">
+  データ蓄積開始から1週間後に前週比、1ヶ月後に前月比が有効になります。
+  出品数が少ないタイトルは参考値として下部に分離しています。
+</div>
+<div class="tabs">
+  <div class="tab active" data-panel="weekly">前週比</div>
+  <div class="tab" data-panel="monthly">前月比</div>
+  <div class="tab" data-panel="new">NEW</div>
+</div>
+
+<div class="panel active" id="panel-weekly"></div>
+<div class="panel" id="panel-monthly"></div>
+<div class="panel" id="panel-new"></div>
+
+<script>
+const ANALYSIS = {"generated_at": "2026-07-14T23:50:50.828988", "latest_snap_date": "2026-07-14", "weekly_ranking": [], "monthly_ranking": [], "new_entries": [{"title_key": "demon_slayer_vol1_23_en", "display_name": "Demon Slayer Complete Box Set Manga Volumes 1-23 English VIZ w/Bonus Poster", "current_price": 120.0, "listing_count": 50, "history": [{"snap_date": "2026-07-14", "median_price": 120.0, "min_price": 20.0, "listing_count": 50, "rank_in_category": 1}]}, {"title_key": "kamisama_kiss_vol1_25_en", "display_name": "Kamisama Kiss Manga Volumes 1-25 English Complete Set US Authentic Viz Media", "current_price": 137.5, "listing_count": 50, "history": [{"snap_date": "2026-07-14", "median_price": 137.5, "min_price": 13.0, "listing_count": 50, "rank_in_category": 2}]}, {"title_key": "dragon_ball_super_vol1_24_en", "display_name": "Dragon Ball Super Manga Volumes 1-24 Brand New English US Authentic Viz Media", "current_price": 156.31, "listing_count": 50, "history": [{"snap_date": "2026-07-14", "median_price": 156.31, "min_price": 11.99, "listing_count": 50, "rank_in_category": 3}]}, {"title_key": "solo_leveling_manhwa_vol1_15_en", "display_name": "Solo Leveling Vol. 1-15 English Manhwa Set Complete", "current_price": 159.95, "listing_count": 50, "history": [{"snap_date": "2026-07-14", "median_price": 159.95, "min_price": 7.99, "listing_count": 50, "rank_in_category": 4}]}, {"title_key": "chainsaw_man_set1_en", "display_name": "Chainsaw Man Box Set 1 (Vol. 1-11) Manga", "current_price": 151.24, "listing_count": 20, "history": [{"snap_date": "2026-07-14", "median_price": 151.24, "min_price": 59.99, "listing_count": 20, "rank_in_category": 5}]}, {"title_key": "clearance_light_novel_collection_exclusives_good_condition__en", "display_name": "[CLEARANCE] Manga & Light Novel Collection | EXCLUSIVES, GOOD CONDITION", "current_price": 65.0, "listing_count": 41, "history": [{"snap_date": "2026-07-14", "median_price": 65.0, "min_price": 1.25, "listing_count": 41, "rank_in_category": 6}]}, {"title_key": "one_piece_skypiea_water_seven_eiichiro_oda_vol24_46_en", "display_name": "One Piece Skypiea & Water Seven Box Set Vol 24-46 English VIZ Eiichiro Oda", "current_price": 131.49, "listing_count": 50, "history": [{"snap_date": "2026-07-14", "median_price": 131.49, "min_price": 15.0, "listing_count": 50, "rank_in_category": 7}]}, {"title_key": "one_hundred_tales_osamu_tezuka_ablaze_books_tpb_2023__en", "display_name": "One Hundred Tales - Osamu Tezuka  (Ablaze Books, TPB 2023) - English", "current_price": 22.0, "listing_count": 1, "history": [{"snap_date": "2026-07-14", "median_price": 22.0, "min_price": 22.0, "listing_count": 1, "rank_in_category": 8}]}, {"title_key": "mushoku_tensei_jobless_reincarnation_light_novel_version_vol1_26_en", "display_name": "Mushoku Tensei: Jobless Reincarnation Light Novel Volume 1-26 English Version!!", "current_price": 296.255, "listing_count": 50, "history": [{"snap_date": "2026-07-14", "median_price": 296.255, "min_price": 19.0, "listing_count": 50, "rank_in_category": 9}]}, {"title_key": "witch_hat_atelier_and_kitchen_eng_variation_listing_vol1_14_en", "display_name": "📚 Witch Hat Atelier Vol. 1-14 and Kitchen Vol. 1-5 ENG Manga Variation Listing", "current_price": 89.125, "listing_count": 50, "history": [{"snap_date": "2026-07-14", "median_price": 89.125, "min_price": 8.99, "listing_count": 50, "rank_in_category": 10}]}, {"title_key": "books_one_piece_east_blue_and_baroque_works_vol1_23_en", "display_name": "Manga Books One Piece Box Set: East Blue and Baroque Works, Volumes 1-23", "current_price": 147.45, "listing_count": 50, "history": [{"snap_date": "2026-07-14", "median_price": 147.45, "min_price": 8.99, "listing_count": 50, "rank_in_category": 11}]}, {"title_key": "magi_the_labyrinth_of_magic_vol1_37_en", "display_name": "Magi The Labyrinth of Magic Manga Volumes 1-37 English New Authentic Viz Media", "current_price": 58.465, "listing_count": 50, "history": [{"snap_date": "2026-07-14", "median_price": 58.465, "min_price": 7.87, "listing_count": 50, "rank_in_category": 12}]}, {"title_key": "demon_slayer_kimetsu_no_yaiba_23_premium_man_vol1_en", "display_name": "Demon Slayer Manga Box Set Kimetsu no Yaiba (Volumes 1–23) – English Premium Man", "current_price": 298.99, "listing_count": 3, "history": [{"snap_date": "2026-07-14", "median_price": 298.99, "min_price": 129.0, "listing_count": 3, "rank_in_category": 13}]}, {"title_key": "claymore_sealed_vol1_27_en", "display_name": "Claymore Manga Box Set Brand New Sealed Volumes 1-27 English Authentic Viz Media", "current_price": 104.655, "listing_count": 50, "history": [{"snap_date": "2026-07-14", "median_price": 104.655, "min_price": 5.0, "listing_count": 50, "rank_in_category": 14}]}, {"title_key": "black_butler_vol1_33_en", "display_name": "Black Butler Manga Volumes 1-33 Brand New English US Authentic Complete Set", "current_price": 63.95, "listing_count": 50, "history": [{"snap_date": "2026-07-14", "median_price": 63.95, "min_price": 7.0, "listing_count": 50, "rank_in_category": 15}]}, {"title_key": "golden_kamuy_vol1_31_en", "display_name": "Golden Kamuy Manga Volumes 1-31 English Brand New Authentic Viz Media Complete", "current_price": 159.325, "listing_count": 50, "history": [{"snap_date": "2026-07-14", "median_price": 159.325, "min_price": 5.4, "listing_count": 50, "rank_in_category": 16}]}, {"title_key": "smoking_behind_the_supermarket_with_you_bundle_vol1_6_en", "display_name": "📚 Smoking Behind the Supermarket With You Vol. 1-6 English Manga Bundle", "current_price": 35.33, "listing_count": 33, "history": [{"snap_date": "2026-07-14", "median_price": 35.33, "min_price": 16.0, "listing_count": 33, "rank_in_category": 17}]}, {"title_key": "trigun_maximum_omnibus_dark_horse_yasuhiro_nightow_vol1_5_en", "display_name": "Trigun Maximum Omnibus Vol 1-5 Complete Set Dark Horse Manga Yasuhiro Nightow", "current_price": 76.75, "listing_count": 50, "history": [{"snap_date": "2026-07-14", "median_price": 76.75, "min_price": 7.59, "listing_count": 50, "rank_in_category": 18}]}, {"title_key": "sa_sa_special_a_first_printing_bundle_vol3_17_en", "display_name": "SA S.A. Special A Vol 3-17 English Manga First Printing Lot Bundle Set", "current_price": 215.0, "listing_count": 5, "history": [{"snap_date": "2026-07-14", "median_price": 215.0, "min_price": 44.99, "listing_count": 5, "rank_in_category": 19}]}, {"title_key": "4books_hunter_x_hunter_yoshihiro_togashi_jump_comic_vol1_38_jp", "display_name": "4books set HUNTER x HUNTER Vol. 1-38 Japanese Manga Yoshihiro Togashi Jump Comic", "current_price": 72.895, "listing_count": 50, "history": [{"snap_date": "2026-07-14", "median_price": 72.895, "min_price": 4.7, "listing_count": 50, "rank_in_category": 20}]}, {"title_key": "assorted__en", "display_name": "Manga Lot Assorted", "current_price": 40.0, "listing_count": 50, "history": [{"snap_date": "2026-07-14", "median_price": 40.0, "min_price": 5.99, "listing_count": 50, "rank_in_category": 21}]}, {"title_key": "maid_sama_in_omnibus_2in1_maid_sama_vol1_9_en", "display_name": "Maid-Sama Manga Vol 1-9 New In English Complete Set Omnibus 2in1 Viz Maid Sama ", "current_price": 52.815, "listing_count": 50, "history": [{"snap_date": "2026-07-14", "median_price": 52.815, "min_price": 7.0, "listing_count": 50, "rank_in_category": 22}]}, {"title_key": "mob_psycho_100_reigen_dark_horse_vol1_15_en", "display_name": "Mob Psycho 100 Manga Volumes 1-15 + Reigen New English Authentic Dark Horse", "current_price": 61.305, "listing_count": 50, "history": [{"snap_date": "2026-07-14", "median_price": 61.305, "min_price": 5.0, "listing_count": 50, "rank_in_category": 23}]}, {"title_key": "the_quintessential_quintuplets_full_color_edition_1_14_comic__en", "display_name": "The Quintessential Quintuplets Full Color Edition 1-14 Complete Set Manga Comic", "current_price": 101.225, "listing_count": 50, "history": [{"snap_date": "2026-07-14", "median_price": 101.225, "min_price": 21.8, "listing_count": 50, "rank_in_category": 24}]}, {"title_key": "jojos_bizzare_adventure_part_7_steel_ball_run_vol1_7_en", "display_name": "📚Jojo's Bizzare Adventure Part 7 Steel Ball Run Vol. 1-7 English Manga", "current_price": 39.18, "listing_count": 50, "history": [{"snap_date": "2026-07-14", "median_price": 39.18, "min_price": 6.99, "listing_count": 50, "rank_in_category": 25}]}, {"title_key": "kenichi_the_mightiest_disciple_historys_strongest_1_61_plus_1_5__en", "display_name": "English Manga Kenichi The Mightiest Disciple History's Strongest 1-61 Plus 1-5", "current_price": 175.82999999999998, "listing_count": 20, "history": [{"snap_date": "2026-07-14", "median_price": 175.82999999999998, "min_price": 1.93, "listing_count": 20, "rank_in_category": 26}]}, {"title_key": "demon_slayer_kimetsu_no_yaiba_vol1_23_jp", "display_name": "Demon Slayer Kimetsu no Yaiba Complete Manga Set Vol.1-23 Japanese", "current_price": 109.88499999999999, "listing_count": 50, "history": [{"snap_date": "2026-07-14", "median_price": 109.88499999999999, "min_price": 17.99, "listing_count": 50, "rank_in_category": 27}]}, {"title_key": "blue_lock_official_variation_listing_kodansha_vol1_29_en", "display_name": "📚Blue Lock Vol. 1-29 Official English Manga Variation Listing Kodansha", "current_price": 58.435, "listing_count": 50, "history": [{"snap_date": "2026-07-14", "median_price": 58.435, "min_price": 4.99, "listing_count": 50, "rank_in_category": 28}]}, {"title_key": "yona_of_the_dawn_in_45_books_vol1_45_en", "display_name": "Yona of the dawn manga In english Volumes 1-45 Viz Media 45 Books New", "current_price": 46.025000000000006, "listing_count": 50, "history": [{"snap_date": "2026-07-14", "median_price": 46.025000000000006, "min_price": 4.0, "listing_count": 50, "rank_in_category": 29}]}, {"title_key": "frieren_beyond_journeys_end_vol1_14_en", "display_name": "Frieren: Beyond Journey’s End Manga Volumes 1-14 Brand New English US Viz Media", "current_price": 119.44, "listing_count": 37, "history": [{"snap_date": "2026-07-14", "median_price": 119.44, "min_price": 29.9, "listing_count": 37, "rank_in_category": 30}]}], "weekly_low_confidence": [], "monthly_low_confidence": [], "notes": {}};
+
+function fmtPrice(v) {
+  return v === null || v === undefined ? "-" : "$" + v.toFixed(2);
+}
+
+function renderCard(item, kind) {
+  const hasChange = kind === "weekly" || kind === "monthly";
+  const changeClass = hasChange ? (item.diff_pct >= 0 ? "change-up" : "change-down") : "";
+  const changeText = hasChange
+    ? `${item.diff_pct >= 0 ? "+" : ""}${item.diff_pct}% (${item.diff_amount >= 0 ? "+" : ""}$${item.diff_amount.toFixed(2)})`
+    : "新規ランクイン";
+  const note = ANALYSIS.notes && ANALYSIS.notes[item.title_key];
+
+  const wrap = document.createElement("div");
+  wrap.className = "card";
+
+  const header = document.createElement("div");
+  header.className = "card-header";
+
+  const left = document.createElement("div");
+  const title = document.createElement("div");
+  title.className = "card-title";
+  title.textContent = item.display_name;
+  const sub = document.createElement("div");
+  sub.className = "card-sub";
+  sub.textContent = `出品数: ${item.listing_count ?? "-"}件`;
+  left.appendChild(title);
+  left.appendChild(sub);
+  if (note) {
+    const noteEl = document.createElement("div");
+    noteEl.className = "card-sub";
+    noteEl.style.marginTop = "6px";
+    noteEl.style.color = "#e0b34d";
+    noteEl.textContent = note;
+    left.appendChild(noteEl);
+  }
+
+  const right = document.createElement("div");
+  right.style.textAlign = "right";
+  const priceEl = document.createElement("div");
+  priceEl.className = "price";
+  priceEl.textContent = fmtPrice(item.current_price);
+  const changeEl = document.createElement("div");
+  changeEl.className = changeClass;
+  changeEl.textContent = changeText;
+  right.appendChild(priceEl);
+  right.appendChild(changeEl);
+
+  header.appendChild(left);
+  header.appendChild(right);
+
+  const chartWrap = document.createElement("div");
+  chartWrap.className = "chart-wrap";
+  const canvas = document.createElement("canvas");
+  chartWrap.appendChild(canvas);
+
+  wrap.appendChild(header);
+  wrap.appendChild(chartWrap);
+
+  let chart = null;
+  header.addEventListener("click", () => {
+    chartWrap.classList.toggle("open");
+    if (chartWrap.classList.contains("open") && !chart) {
+      chart = new Chart(canvas, {
+        type: "line",
+        data: {
+          labels: item.history.map(h => h.snap_date),
+          datasets: [{
+            label: "中央値価格",
+            data: item.history.map(h => h.median_price),
+            borderColor: "#4da3ff",
+            backgroundColor: "rgba(77,163,255,0.15)",
+            tension: 0.2,
+          }],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            x: { ticks: { color: "#999" }, grid: { color: "#2a2a2a" } },
+            y: { ticks: { color: "#999" }, grid: { color: "#2a2a2a" } },
+          },
+          plugins: { legend: { labels: { color: "#ccc" } } },
+        },
+      });
+    }
+  });
+
+  return wrap;
+}
+
+function renderPanel(panelId, items, kind, lowConfidenceItems) {
+  const panel = document.getElementById(panelId);
+  panel.innerHTML = "";
+  const hasMain = items && items.length > 0;
+  const hasLow = lowConfidenceItems && lowConfidenceItems.length > 0;
+  if (!hasMain && !hasLow) {
+    panel.innerHTML = '<div class="empty">データがありません</div>';
+    return;
+  }
+  if (hasMain) {
+    items.forEach(item => panel.appendChild(renderCard(item, kind)));
+  }
+  if (hasLow) {
+    const heading = document.createElement("div");
+    heading.className = "card-sub";
+    heading.style.margin = "16px 0 8px";
+    heading.textContent = "出品数が少なく参考値のタイトル";
+    panel.appendChild(heading);
+    lowConfidenceItems.forEach(item => panel.appendChild(renderCard(item, kind)));
+  }
+}
+
+renderPanel("panel-weekly", ANALYSIS.weekly_ranking, "weekly", ANALYSIS.weekly_low_confidence);
+renderPanel("panel-monthly", ANALYSIS.monthly_ranking, "monthly", ANALYSIS.monthly_low_confidence);
+renderPanel("panel-new", ANALYSIS.new_entries, "new");
+
+document.querySelectorAll(".tab").forEach(tab => {
+  tab.addEventListener("click", () => {
+    document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+    document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
+    tab.classList.add("active");
+    document.getElementById("panel-" + tab.dataset.panel).classList.add("active");
+  });
+});
+</script>
+</body>
+</html>
