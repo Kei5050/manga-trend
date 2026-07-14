@@ -24,9 +24,15 @@ EBAY_SEARCH_URL = "https://api.ebay.com/buy/browse/v1/item_summary/search"
 CATEGORY_ID = "33346"
 # Browse APIのsearchはcategory_ids単体では受け付けず、qが必須。カテゴリを絞り込むための検索語。
 DEFAULT_QUERY = "manga"
-TOP_N = 30
+TOP_N_SINGLE = 50
+TOP_N_SET = 50
+# 単巻/セットの分類はaspect_filter(Unit of Sale)が機能しないため、
+# 広めに取得した結果をタイトル解析(is_single_volume/is_multi_volume_set)で分類する
+SEARCH_POOL_LIMIT = 200
 REQUEST_INTERVAL_SEC = 1.0
 
+_DASH_CHARS = re.compile(r"[‐-―−]")  # en/em dash等をASCIIハイフンに統一
+_LOT_WORDS = re.compile(r"\b(lot|bundle|collection|complete\s*set)\b", re.IGNORECASE)
 _VOLUME_PATTERNS = [
     re.compile(r"\b(?:box\s*set|set)\s*\.?\s*#?\s*(\d+\s*-\s*\d+|\d+)\b", re.IGNORECASE),
     re.compile(r"\b(?:vols?\.?|volumes?)\s*\.?\s*#?\s*(\d+\s*-\s*\d+|\d+)\b", re.IGNORECASE),
@@ -46,24 +52,44 @@ def parse_title_components(raw_title: str) -> tuple:
     「Vol./Volume/Set + 数字(範囲可)」のパターンを優先的に検出する。
     言語表記が見当たらない場合は英語(en)を既定値とする。
     """
+    normalized_title = _DASH_CHARS.sub("-", raw_title)
+
     volume_or_set = ""
     for pattern in _VOLUME_PATTERNS:
-        match = pattern.search(raw_title)
+        match = pattern.search(normalized_title)
         if match:
             is_set = pattern is _VOLUME_PATTERNS[0]
             num = re.sub(r"\s*-\s*", "-", match.group(1))
             volume_or_set = f"{'set' if is_set else 'vol'}{num}"
             break
 
-    language = "jp" if re.search(r"\bjapanese\b", raw_title, re.IGNORECASE) else "en"
+    language = "jp" if re.search(r"\bjapanese\b", normalized_title, re.IGNORECASE) else "en"
 
-    series_name = raw_title
+    series_name = normalized_title
     for pattern in _VOLUME_PATTERNS:
         series_name = pattern.sub("", series_name)
     series_name = _NOISE_WORDS.sub("", series_name)
     series_name = re.sub(r"\s+", " ", series_name).strip(" -.,")
 
     return series_name, volume_or_set, language
+
+
+def is_single_volume(raw_title: str, volume_or_set: str) -> bool:
+    """巻数/セット表記と『lot』『bundle』等のキーワードから単巻出品かどうかを判定する。"""
+    if not volume_or_set.startswith("vol"):
+        return False
+    if "-" in volume_or_set:
+        return False
+    return not _LOT_WORDS.search(raw_title)
+
+
+def is_multi_volume_set(raw_title: str, volume_or_set: str) -> bool:
+    """複数巻セット/ボックスセット/まとめ売りの出品かどうかを判定する。"""
+    if volume_or_set.startswith("set"):
+        return True
+    if volume_or_set.startswith("vol") and "-" in volume_or_set:
+        return True
+    return bool(_LOT_WORDS.search(raw_title))
 
 
 def normalize_title_key(series_name: str, volume_or_set: str, language: str) -> str:
@@ -123,8 +149,8 @@ def fetch_listings(access_token: str, keyword: str, category_id: str = CATEGORY_
     return resp.json().get("itemSummaries", [])
 
 
-def search_top_titles(access_token: str, category_id: str = CATEGORY_ID, top_n: int = TOP_N) -> list:
-    """カテゴリ内をBest Match順(sort省略時の既定)で検索し、上位タイトルの生アイテムを取得する。
+def search_category_pool(access_token: str, category_id: str = CATEGORY_ID, limit: int = SEARCH_POOL_LIMIT) -> list:
+    """カテゴリ内をBest Match順(sort省略時の既定)で検索し、生アイテムを取得する。
 
     Browse APIにwatchCount等の人気順ソートは存在しないため、
     関連度に基づくBest Matchを人気順の代替として採用する。
@@ -136,11 +162,29 @@ def search_top_titles(access_token: str, category_id: str = CATEGORY_ID, top_n: 
     params = {
         "q": DEFAULT_QUERY,
         "category_ids": category_id,
-        "limit": str(top_n),
+        "limit": str(limit),
     }
     resp = requests.get(EBAY_SEARCH_URL, headers=headers, params=params, timeout=30)
     resp.raise_for_status()
     return resp.json().get("itemSummaries", [])
+
+
+def split_top_titles(items: list, top_n_single: int = TOP_N_SINGLE, top_n_set: int = TOP_N_SET) -> tuple:
+    """検索結果を単巻/セットに分類し、Best Match順を保ったまま上位N件ずつに絞る。
+
+    eBay Browse APIのaspect_filter(Unit of Sale)が実際には機能しないため、
+    タイトル文字列の解析(is_single_volume/is_multi_volume_set)で判定する。
+    """
+    singles = []
+    sets_ = []
+    for item in items:
+        raw_title = item.get("title", "")
+        _, volume_or_set, _ = parse_title_components(raw_title)
+        if is_single_volume(raw_title, volume_or_set) and len(singles) < top_n_single:
+            singles.append(item)
+        elif is_multi_volume_set(raw_title, volume_or_set) and len(sets_) < top_n_set:
+            sets_.append(item)
+    return singles, sets_
 
 
 def summarize_listings(items: list) -> dict:
@@ -191,13 +235,20 @@ def upsert_snapshot(
 
 
 def collect_top_titles(conn, access_token: str, snap_date: str) -> dict:
-    """上位30タイトルを取得し、titlesに記録する。title_key -> rank の辞書を返す。"""
-    items = search_top_titles(access_token)
+    """単巻・セットそれぞれ上位N件を取得し、titlesに記録する。title_key -> rank の辞書を返す。
+
+    単巻とセットは別のランキング(共にBest Match順で1位から採番)として扱う。
+    """
+    pool = search_category_pool(access_token)
+    singles, sets_ = split_top_titles(pool)
+
     rank_map = {}
-    for rank, item in enumerate(items[:TOP_N], start=1):
+    for rank, item in enumerate(singles + sets_, start=1):
         raw_title = item.get("title", "")
         series_name, volume_or_set, language = parse_title_components(raw_title)
         title_key = normalize_title_key(series_name, volume_or_set, language)
+        # 同一カテゴリ内の順位は単巻/セット双方で1位から振り直しているため、
+        # ここでは単巻50件を1〜50、セット50件を51〜100として通し番号にする
         rank_map[title_key] = rank
         upsert_title(conn, title_key, raw_title or title_key, snap_date)
     conn.commit()

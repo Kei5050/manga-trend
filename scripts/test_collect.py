@@ -8,8 +8,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from collect import (
     collect_tracked_titles,
     collect_top_titles,
+    is_multi_volume_set,
+    is_single_volume,
     normalize_title_key,
     parse_title_components,
+    split_top_titles,
     summarize_listings,
     upsert_title,
 )
@@ -64,6 +67,43 @@ class TestParseTitleComponents(unittest.TestCase):
         self.assertEqual(vol, "")
 
 
+class TestSingleVsSetClassification(unittest.TestCase):
+    def test_single_volume_detected(self):
+        title = "One Piece, Vol. 112"
+        _, vol, _ = parse_title_components(title)
+        self.assertTrue(is_single_volume(title, vol))
+        self.assertFalse(is_multi_volume_set(title, vol))
+
+    def test_en_dash_range_treated_as_set(self):
+        title = "Demon Slayer Manga Box Set Kimetsu no Yaiba (Volumes 1–23)"
+        _, vol, _ = parse_title_components(title)
+        self.assertFalse(is_single_volume(title, vol))
+        self.assertTrue(is_multi_volume_set(title, vol))
+
+    def test_box_set_detected(self):
+        title = "Chainsaw Man Box Set 1 (Vol. 1-11) Manga"
+        _, vol, _ = parse_title_components(title)
+        self.assertTrue(is_multi_volume_set(title, vol))
+        self.assertFalse(is_single_volume(title, vol))
+
+    def test_lot_keyword_treated_as_set_even_without_range(self):
+        title = "Manga Lot Assorted Vol.3"
+        _, vol, _ = parse_title_components(title)
+        self.assertTrue(is_multi_volume_set(title, vol))
+        self.assertFalse(is_single_volume(title, vol))
+
+    def test_split_top_titles_respects_limits_and_order(self):
+        items = (
+            [{"title": f"Series {i} Vol.{i} Manga"} for i in range(3)]
+            + [{"title": f"Series {i} Box Set 1-{i+10} Manga"} for i in range(3)]
+        )
+        singles, sets_ = split_top_titles(items, top_n_single=2, top_n_set=2)
+        self.assertEqual(len(singles), 2)
+        self.assertEqual(len(sets_), 2)
+        self.assertEqual(singles[0]["title"], "Series 0 Vol.0 Manga")
+        self.assertEqual(sets_[0]["title"], "Series 0 Box Set 1-10 Manga")
+
+
 class TestSummarizeListings(unittest.TestCase):
     def test_median_and_min(self):
         items = [
@@ -109,8 +149,9 @@ class TestMockCollectionFlow(unittest.TestCase):
 
     def test_mock_top_titles_and_tracked_snapshot(self):
         mock_top_items = [
-            {"title": "One Piece", "volume": "Vol.1", "language": "en"},
-            {"title": "Naruto", "volume": "Vol.1", "language": "en"},
+            {"title": "One Piece Vol.1 Manga English"},
+            {"title": "Naruto Vol.1 Manga English"},
+            {"title": "Bleach Box Set 1-20 Manga English"},
         ]
         mock_listing_items = [
             {"price": {"value": "9.99"}},
@@ -122,27 +163,27 @@ class TestMockCollectionFlow(unittest.TestCase):
 
         import collect as collect_module
 
-        original_search = collect_module.search_top_titles
+        original_search = collect_module.search_category_pool
         original_fetch = collect_module.fetch_listings
-        collect_module.search_top_titles = lambda token, category_id=collect_module.CATEGORY_ID, top_n=collect_module.TOP_N: mock_top_items
+        collect_module.search_category_pool = lambda token, category_id=collect_module.CATEGORY_ID, limit=collect_module.SEARCH_POOL_LIMIT: mock_top_items
         collect_module.fetch_listings = lambda token, keyword, category_id=collect_module.CATEGORY_ID, limit=50: mock_listing_items
         try:
             rank_map = collect_top_titles(self.conn, FakeAccessToken(), "2026-07-12")
             collect_tracked_titles(self.conn, FakeAccessToken(), "2026-07-12", rank_map)
         finally:
-            collect_module.search_top_titles = original_search
+            collect_module.search_category_pool = original_search
             collect_module.fetch_listings = original_fetch
 
         titles = self.conn.execute("SELECT title_key FROM titles").fetchall()
-        self.assertEqual(len(titles), 2)
+        self.assertEqual(len(titles), 3)
 
         snapshots = self.conn.execute(
             "SELECT title_key, median_price, rank_in_category FROM snapshots"
         ).fetchall()
-        self.assertEqual(len(snapshots), 2)
+        self.assertEqual(len(snapshots), 3)
         for title_key, median_price, rank in snapshots:
             self.assertAlmostEqual(median_price, 11.245)
-            self.assertIn(rank, (1, 2))
+            self.assertIn(rank, (1, 2, 3))
 
 
 if __name__ == "__main__":
