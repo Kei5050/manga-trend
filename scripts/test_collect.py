@@ -12,6 +12,7 @@ from collect import (
     is_single_volume,
     normalize_title_key,
     parse_title_components,
+    search_category_pool,
     split_top_titles,
     summarize_listings,
     upsert_title,
@@ -104,6 +105,41 @@ class TestSingleVsSetClassification(unittest.TestCase):
         self.assertEqual(sets_[0]["title"], "Series 0 Box Set 1-10 Manga")
 
 
+class TestSearchCategoryPoolMerging(unittest.TestCase):
+    def test_merges_multiple_queries_and_dedupes_by_item_id(self):
+        import collect as collect_module
+
+        responses = {
+            "manga": [{"itemId": "1", "title": "One Piece Vol.1 Manga"}, {"itemId": "2", "title": "Naruto Vol.1 Manga"}],
+            "BGS": [{"itemId": "2", "title": "Naruto Vol.1 Manga"}, {"itemId": "3", "title": "BGS 9.8 Dragon Ball #1"}],
+            "vol": [{"itemId": "4", "title": "Bleach Vol.1"}],
+        }
+
+        class FakeResponse:
+            def __init__(self, items):
+                self._items = items
+
+            def raise_for_status(self):
+                pass
+
+            def json(self):
+                return {"itemSummaries": self._items}
+
+        def fake_get(url, headers=None, params=None, timeout=None):
+            return FakeResponse(responses[params["q"]])
+
+        original_get = collect_module.requests.get
+        collect_module.requests.get = fake_get
+        try:
+            merged = search_category_pool(
+                "fake-token", queries=["manga", "BGS", "vol"]
+            )
+        finally:
+            collect_module.requests.get = original_get
+
+        self.assertEqual([item["itemId"] for item in merged], ["1", "2", "3", "4"])
+
+
 class TestSummarizeListings(unittest.TestCase):
     def test_median_and_min(self):
         items = [
@@ -165,7 +201,9 @@ class TestMockCollectionFlow(unittest.TestCase):
 
         original_search = collect_module.search_category_pool
         original_fetch = collect_module.fetch_listings
-        collect_module.search_category_pool = lambda token, category_id=collect_module.CATEGORY_ID, limit=collect_module.SEARCH_POOL_LIMIT: mock_top_items
+        collect_module.search_category_pool = (
+            lambda token, category_id=collect_module.CATEGORY_ID, queries=collect_module.SEARCH_QUERIES, limit_per_query=collect_module.SEARCH_POOL_LIMIT_PER_QUERY: mock_top_items
+        )
         collect_module.fetch_listings = lambda token, keyword, category_id=collect_module.CATEGORY_ID, limit=50: mock_listing_items
         try:
             rank_map = collect_top_titles(self.conn, FakeAccessToken(), "2026-07-12")

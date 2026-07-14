@@ -23,12 +23,16 @@ EBAY_SEARCH_URL = "https://api.ebay.com/buy/browse/v1/item_summary/search"
 # Comics & Graphic Novels > Manga & Asian Comics のカテゴリID(eBay Browse APIで確認済み)
 CATEGORY_ID = "33346"
 # Browse APIのsearchはcategory_ids単体では受け付けず、qが必須。カテゴリを絞り込むための検索語。
-DEFAULT_QUERY = "manga"
+# "manga"のみだとタイトルに"manga"を含まない出品(BGSなどグレーディング表記が中心の出品や
+# 巻数のみのタイトル)を取りこぼすため、複数クエリを実行して結果をマージする。
+# "#"は単独クエリだとeBay側で「結果が大きすぎる」エラーになるため使えない
+# (巻数としての"#"表記はparse_title_componentsの正規表現側で拾う)。
+SEARCH_QUERIES = ["manga", "BGS", "vol"]
 TOP_N_SINGLE = 50
 TOP_N_SET = 50
 # 単巻/セットの分類はaspect_filter(Unit of Sale)が機能しないため、
 # 広めに取得した結果をタイトル解析(is_single_volume/is_multi_volume_set)で分類する
-SEARCH_POOL_LIMIT = 200
+SEARCH_POOL_LIMIT_PER_QUERY = 200
 REQUEST_INTERVAL_SEC = 1.0
 
 _DASH_CHARS = re.compile(r"[‐-―−]")  # en/em dash等をASCIIハイフンに統一
@@ -149,9 +153,16 @@ def fetch_listings(access_token: str, keyword: str, category_id: str = CATEGORY_
     return resp.json().get("itemSummaries", [])
 
 
-def search_category_pool(access_token: str, category_id: str = CATEGORY_ID, limit: int = SEARCH_POOL_LIMIT) -> list:
-    """カテゴリ内をBest Match順(sort省略時の既定)で検索し、生アイテムを取得する。
+def search_category_pool(
+    access_token: str,
+    category_id: str = CATEGORY_ID,
+    queries: list = SEARCH_QUERIES,
+    limit_per_query: int = SEARCH_POOL_LIMIT_PER_QUERY,
+) -> list:
+    """カテゴリ内を複数クエリでBest Match順(sort省略時の既定)に検索し、結果をマージして返す。
 
+    "manga"のみのクエリだとタイトルに"manga"を含まない出品(BGSグレーディング表記中心の
+    出品など)を取りこぼすため、複数クエリの結果をitemId基準で重複排除しながら結合する。
     Browse APIにwatchCount等の人気順ソートは存在しないため、
     関連度に基づくBest Matchを人気順の代替として採用する。
     """
@@ -159,14 +170,23 @@ def search_category_pool(access_token: str, category_id: str = CATEGORY_ID, limi
         "Authorization": f"Bearer {access_token}",
         "X-EBAY-C-MARKETPLACE-ID": "EBAY_US",
     }
-    params = {
-        "q": DEFAULT_QUERY,
-        "category_ids": category_id,
-        "limit": str(limit),
-    }
-    resp = requests.get(EBAY_SEARCH_URL, headers=headers, params=params, timeout=30)
-    resp.raise_for_status()
-    return resp.json().get("itemSummaries", [])
+    seen_item_ids = set()
+    merged = []
+    for query in queries:
+        params = {
+            "q": query,
+            "category_ids": category_id,
+            "limit": str(limit_per_query),
+        }
+        resp = requests.get(EBAY_SEARCH_URL, headers=headers, params=params, timeout=30)
+        resp.raise_for_status()
+        for item in resp.json().get("itemSummaries", []):
+            item_id = item.get("itemId")
+            if item_id in seen_item_ids:
+                continue
+            seen_item_ids.add(item_id)
+            merged.append(item)
+    return merged
 
 
 def split_top_titles(items: list, top_n_single: int = TOP_N_SINGLE, top_n_set: int = TOP_N_SET) -> tuple:
