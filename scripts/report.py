@@ -57,6 +57,35 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   }
   .panel { display: none; padding: 12px; }
   .panel.active { display: block; }
+  .sort-bar {
+    display: flex;
+    gap: 6px;
+    padding: 10px 12px 0;
+    overflow-x: auto;
+  }
+  .sort-btn {
+    flex: none;
+    font-size: 12px;
+    color: #999;
+    background: #1e1e1e;
+    border: 1px solid #2a2a2a;
+    border-radius: 14px;
+    padding: 6px 12px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .sort-btn.active {
+    color: #fff;
+    border-color: #4da3ff;
+    background: rgba(77,163,255,0.12);
+  }
+  .ebay-link {
+    display: inline-block;
+    margin-top: 6px;
+    font-size: 12px;
+    color: #4da3ff;
+    text-decoration: none;
+  }
   .card {
     background: #1e1e1e;
     border-radius: 10px;
@@ -102,6 +131,13 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   <div class="tab" data-panel="new">NEW</div>
 </div>
 
+<div class="sort-bar">
+  <button class="sort-btn active" data-sort="pct_desc">上昇率 高い順</button>
+  <button class="sort-btn" data-sort="pct_asc">上昇率 低い順</button>
+  <button class="sort-btn" data-sort="price_desc">価格 高い順</button>
+  <button class="sort-btn" data-sort="price_asc">価格 安い順</button>
+</div>
+
 <div class="panel active" id="panel-weekly"></div>
 <div class="panel" id="panel-monthly"></div>
 <div class="panel" id="panel-new"></div>
@@ -144,6 +180,16 @@ function renderCard(item, kind) {
     noteEl.textContent = note;
     left.appendChild(noteEl);
   }
+
+  const link = document.createElement("a");
+  link.className = "ebay-link";
+  link.textContent = "eBayで出品を見る →";
+  link.href = "https://www.ebay.com/sch/i.html?_nkw=" + encodeURIComponent(item.display_name);
+  link.target = "_blank";
+  link.rel = "noopener noreferrer";
+  // カード開閉のクリックと干渉しないようにする
+  link.addEventListener("click", e => e.stopPropagation());
+  left.appendChild(link);
 
   const right = document.createElement("div");
   right.style.textAlign = "right";
@@ -199,6 +245,23 @@ function renderCard(item, kind) {
   return wrap;
 }
 
+let currentSort = "pct_desc";
+
+function sortItems(items) {
+  const sorted = [...items];
+  const key = currentSort.startsWith("pct") ? "diff_pct" : "current_price";
+  const asc = currentSort.endsWith("asc");
+  // ソートキーを持たない項目(NEWタブでの上昇率ソートなど)は末尾に置き、元の順序を保つ
+  sorted.sort((a, b) => {
+    const av = a[key], bv = b[key];
+    if (av == null && bv == null) return 0;
+    if (av == null) return 1;
+    if (bv == null) return -1;
+    return asc ? av - bv : bv - av;
+  });
+  return sorted;
+}
+
 function renderPanel(panelId, items, kind, lowConfidenceItems) {
   const panel = document.getElementById(panelId);
   panel.innerHTML = "";
@@ -209,7 +272,7 @@ function renderPanel(panelId, items, kind, lowConfidenceItems) {
     return;
   }
   if (hasMain) {
-    items.forEach(item => panel.appendChild(renderCard(item, kind)));
+    sortItems(items).forEach(item => panel.appendChild(renderCard(item, kind)));
   }
   if (hasLow) {
     const heading = document.createElement("div");
@@ -217,13 +280,26 @@ function renderPanel(panelId, items, kind, lowConfidenceItems) {
     heading.style.margin = "16px 0 8px";
     heading.textContent = "出品数が少なく参考値のタイトル";
     panel.appendChild(heading);
-    lowConfidenceItems.forEach(item => panel.appendChild(renderCard(item, kind)));
+    sortItems(lowConfidenceItems).forEach(item => panel.appendChild(renderCard(item, kind)));
   }
 }
 
-renderPanel("panel-weekly", ANALYSIS.weekly_ranking, "weekly", ANALYSIS.weekly_low_confidence);
-renderPanel("panel-monthly", ANALYSIS.monthly_ranking, "monthly", ANALYSIS.monthly_low_confidence);
-renderPanel("panel-new", ANALYSIS.new_entries, "new");
+function renderAllPanels() {
+  renderPanel("panel-weekly", ANALYSIS.weekly_ranking, "weekly", ANALYSIS.weekly_low_confidence);
+  renderPanel("panel-monthly", ANALYSIS.monthly_ranking, "monthly", ANALYSIS.monthly_low_confidence);
+  renderPanel("panel-new", ANALYSIS.new_entries, "new");
+}
+
+renderAllPanels();
+
+document.querySelectorAll(".sort-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".sort-btn").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    currentSort = btn.dataset.sort;
+    renderAllPanels();
+  });
+});
 
 document.querySelectorAll(".tab").forEach(tab => {
   tab.addEventListener("click", () => {
