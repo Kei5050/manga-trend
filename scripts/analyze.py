@@ -60,8 +60,8 @@ def compute_change(latest: dict, past: dict) -> dict:
 def build_analysis(conn) -> dict:
     by_title = load_snapshots(conn)
     titles_meta = {
-        row[0]: row[1]
-        for row in conn.execute("SELECT title_key, display_name FROM titles").fetchall()
+        row[0]: {"display_name": row[1], "kind": row[2]}
+        for row in conn.execute("SELECT title_key, display_name, kind FROM titles").fetchall()
     }
 
     latest_date = max(
@@ -80,10 +80,11 @@ def build_analysis(conn) -> dict:
         if datetime.fromisoformat(latest["snap_date"]) != latest_date:
             continue
 
-        display_name = titles_meta.get(title_key, title_key)
+        meta = titles_meta.get(title_key, {"display_name": title_key, "kind": None})
         entry_base = {
             "title_key": title_key,
-            "display_name": display_name,
+            "display_name": meta["display_name"],
+            "kind": meta["kind"],
             "current_price": latest["median_price"],
             "listing_count": latest["listing_count"],
             "history": history_sorted,

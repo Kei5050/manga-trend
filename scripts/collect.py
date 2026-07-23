@@ -232,14 +232,15 @@ def summarize_listings(items: list) -> dict:
     }
 
 
-def upsert_title(conn, title_key: str, display_name: str, snap_date: str) -> None:
+def upsert_title(conn, title_key: str, display_name: str, snap_date: str, kind: str = None) -> None:
     conn.execute(
         """
-        INSERT INTO titles (title_key, display_name, first_seen)
-        VALUES (?, ?, ?)
-        ON CONFLICT(title_key) DO NOTHING
+        INSERT INTO titles (title_key, display_name, first_seen, kind)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(title_key) DO UPDATE SET
+          kind = COALESCE(excluded.kind, titles.kind)
         """,
-        (title_key, display_name, snap_date),
+        (title_key, display_name, snap_date, kind),
     )
 
 
@@ -279,10 +280,11 @@ def collect_top_titles(conn, access_token: str, snap_date: str) -> dict:
         raw_title = item.get("title", "")
         series_name, volume_or_set, language = parse_title_components(raw_title)
         title_key = normalize_title_key(series_name, volume_or_set, language)
+        kind = "single" if item in singles else "set"
         # 同一カテゴリ内の順位は単巻/セット双方で1位から振り直しているため、
         # ここでは単巻50件を1〜50、セット50件を51〜100として通し番号にする
         rank_map[title_key] = rank
-        upsert_title(conn, title_key, raw_title or title_key, snap_date)
+        upsert_title(conn, title_key, raw_title or title_key, snap_date, kind=kind)
     conn.commit()
     return rank_map
 

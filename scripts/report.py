@@ -63,7 +63,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     padding: 10px 12px 0;
     overflow-x: auto;
   }
-  .sort-btn {
+  .sort-btn, .kind-btn {
     flex: none;
     font-size: 12px;
     color: #999;
@@ -78,6 +78,11 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     color: #fff;
     border-color: #4da3ff;
     background: rgba(77,163,255,0.12);
+  }
+  .kind-btn.active {
+    color: #fff;
+    border-color: #e0b34d;
+    background: rgba(224,179,77,0.12);
   }
   .ebay-link {
     display: inline-block;
@@ -131,6 +136,11 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   <div class="tab" data-panel="new">NEW</div>
 </div>
 
+<div class="sort-bar">
+  <button class="kind-btn active" data-kind="all">すべて</button>
+  <button class="kind-btn" data-kind="single">単巻</button>
+  <button class="kind-btn" data-kind="set">セット</button>
+</div>
 <div class="sort-bar">
   <button class="sort-btn active" data-sort="pct_desc">上昇率 高い順</button>
   <button class="sort-btn" data-sort="pct_asc">上昇率 低い順</button>
@@ -246,6 +256,13 @@ function renderCard(item, kind) {
 }
 
 let currentSort = "pct_desc";
+let currentKind = "all";
+
+function filterItems(items) {
+  if (currentKind === "all") return items;
+  // kind未分類(null)の項目は「すべて」でのみ表示する
+  return items.filter(item => item.kind === currentKind);
+}
 
 function sortItems(items) {
   const sorted = [...items];
@@ -265,22 +282,20 @@ function sortItems(items) {
 function renderPanel(panelId, items, kind, lowConfidenceItems) {
   const panel = document.getElementById(panelId);
   panel.innerHTML = "";
-  const hasMain = items && items.length > 0;
-  const hasLow = lowConfidenceItems && lowConfidenceItems.length > 0;
-  if (!hasMain && !hasLow) {
+  const mainItems = filterItems(items || []);
+  const lowItems = filterItems(lowConfidenceItems || []);
+  if (mainItems.length === 0 && lowItems.length === 0) {
     panel.innerHTML = '<div class="empty">データがありません</div>';
     return;
   }
-  if (hasMain) {
-    sortItems(items).forEach(item => panel.appendChild(renderCard(item, kind)));
-  }
-  if (hasLow) {
+  sortItems(mainItems).forEach(item => panel.appendChild(renderCard(item, kind)));
+  if (lowItems.length > 0) {
     const heading = document.createElement("div");
     heading.className = "card-sub";
     heading.style.margin = "16px 0 8px";
     heading.textContent = "出品数が少なく参考値のタイトル";
     panel.appendChild(heading);
-    sortItems(lowConfidenceItems).forEach(item => panel.appendChild(renderCard(item, kind)));
+    sortItems(lowItems).forEach(item => panel.appendChild(renderCard(item, kind)));
   }
 }
 
@@ -297,6 +312,15 @@ document.querySelectorAll(".sort-btn").forEach(btn => {
     document.querySelectorAll(".sort-btn").forEach(b => b.classList.remove("active"));
     btn.classList.add("active");
     currentSort = btn.dataset.sort;
+    renderAllPanels();
+  });
+});
+
+document.querySelectorAll(".kind-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".kind-btn").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    currentKind = btn.dataset.kind;
     renderAllPanels();
   });
 });
